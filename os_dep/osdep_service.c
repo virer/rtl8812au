@@ -1201,7 +1201,7 @@ inline void kthread_thread_exit(_completion *comp)
 #endif
 {
 #ifdef PLATFORM_LINUX
-#if LINUX_VERSION_CODE < KERNEL_VERSION(5, 17, 0)
+#if LINUX_VERSION_CODE < KERNEL_VERSION(5, 14, 0)
 	complete_and_exit(comp, 0);
 #else
 	kthread_complete_and_exit(comp, 0);
