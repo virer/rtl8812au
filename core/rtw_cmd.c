@@ -152,19 +152,6 @@ sint _rtw_init_evt_priv(struct evt_priv *pevtpriv)
 		goto exit;
 	}
 	pevtpriv->evt_buf = pevtpriv->evt_allocated_buf  +  4 - ((unsigned int)(pevtpriv->evt_allocated_buf) & 3);
-
-
-#if defined(CONFIG_SDIO_HCI) || defined(CONFIG_GSPI_HCI)
-	pevtpriv->allocated_c2h_mem = rtw_zmalloc(C2H_MEM_SZ + 4);
-
-	if (pevtpriv->allocated_c2h_mem == NULL) {
-		res = _FAIL;
-		goto exit;
-	}
-
-	pevtpriv->c2h_mem = pevtpriv->allocated_c2h_mem +  4\
-			    - ((u32)(pevtpriv->allocated_c2h_mem) & 3);
-#endif /* end of CONFIG_SDIO_HCI */
 	_rtw_init_queue(&(pevtpriv->evt_queue));
 
 exit:
@@ -5421,11 +5408,6 @@ u8 rtw_drvextra_cmd_hdl(_adapter *padapter, unsigned char *pbuf)
 #ifdef CONFIG_AP_MODE
 	case CHECK_HIQ_WK_CID:
 		rtw_chk_hi_queue_hdl(padapter);
-		break;
-#endif
-#ifdef CONFIG_INTEL_WIDI
-	case INTEl_WIDI_WK_CID:
-		intel_widi_wk_hdl(padapter, pdrvextra_cmd->type, pdrvextra_cmd->pbuf);
 		break;
 #endif
 	/* add for CONFIG_IEEE80211W, none 11w can use it */

@@ -3251,20 +3251,6 @@ static int rtw_wx_read32(struct net_device *dev,
 		sprintf(extra, "0x%08X", data32);
 		break;
 
-	#if defined(CONFIG_SDIO_HCI) && defined(CONFIG_SDIO_INDIRECT_ACCESS) && defined(DBG_SDIO_INDIRECT_ACCESS)
-	case 11:
-		data32 = rtw_sd_iread8(padapter, addr);
-		sprintf(extra, "0x%02X", data32);
-		break;
-	case 12:
-		data32 = rtw_sd_iread16(padapter, addr);
-		sprintf(extra, "0x%04X", data32);
-		break;
-	case 14:
-		data32 = rtw_sd_iread32(padapter, addr);
-		sprintf(extra, "0x%08X", data32);
-		break;
-	#endif
 	default:
 		RTW_INFO("%s: usage> read [bytes],[address(hex)]\n", __func__);
 		ret = -EINVAL;
@@ -3803,10 +3789,6 @@ static int rtw_wps_start(struct net_device *dev,
 		rtw_led_control(padapter, LED_CTL_STOP_WPS);
 	else if (u32wps_start == 3)   /* WPS Stop because of wps fail */
 		rtw_led_control(padapter, LED_CTL_STOP_WPS_FAIL);
-
-#ifdef CONFIG_INTEL_WIDI
-	process_intel_widi_wps_status(padapter, u32wps_start);
-#endif /* CONFIG_INTEL_WIDI */
 
 exit:
 
@@ -4688,13 +4670,6 @@ static int rtw_p2p_connect(struct net_device *dev,
 		return ret;
 	}
 
-#ifdef CONFIG_INTEL_WIDI
-	if (check_fwstate(pmlmepriv, _FW_UNDER_SURVEY) == _TRUE) {
-		RTW_INFO("[%s] WiFi is under survey!\n", __FUNCTION__);
-		return ret;
-	}
-#endif /* CONFIG_INTEL_WIDI	 */
-
 	if (pwdinfo->ui_got_wps_info == P2P_NO_WPSINFO)
 		return -1;
 
@@ -4776,19 +4751,6 @@ static int rtw_p2p_connect(struct net_device *dev,
 
 	} else {
 		RTW_INFO("[%s] Not Found in Scanning Queue~\n", __FUNCTION__);
-#ifdef CONFIG_INTEL_WIDI
-		_cancel_timer_ex(&pwdinfo->restore_p2p_state_timer);
-		rtw_p2p_set_state(pwdinfo, P2P_STATE_FIND_PHASE_SEARCH);
-		rtw_p2p_findphase_ex_set(pwdinfo, P2P_FINDPHASE_EX_NONE);
-		rtw_free_network_queue(padapter, _TRUE);
-		/**
-		 * For WiDi, if we can't find candidate device in scanning queue,
-		 * driver will do scanning itself
-		 */
-		_enter_critical_bh(&pmlmepriv->lock, &irqL);
-		rtw_sitesurvey_cmd(padapter, NULL);
-		_exit_critical_bh(&pmlmepriv->lock, &irqL);
-#endif /* CONFIG_INTEL_WIDI */
 		ret = -1;
 	}
 exit:
@@ -5319,12 +5281,6 @@ static int rtw_p2p_prov_disc(struct net_device *dev,
 		RTW_INFO("[%s] WiFi Direct is disable!\n", __FUNCTION__);
 		return ret;
 	} else {
-#ifdef CONFIG_INTEL_WIDI
-		if (check_fwstate(pmlmepriv, _FW_UNDER_SURVEY) == _TRUE) {
-			RTW_INFO("[%s] WiFi is under survey!\n", __FUNCTION__);
-			return ret;
-		}
-#endif /* CONFIG_INTEL_WIDI */
 
 		/*	Reset the content of struct tx_provdisc_req_info excluded the wps_config_method_request. */
 		_rtw_memset(pwdinfo->tx_prov_disc_info.peerDevAddr, 0x00, ETH_ALEN);
@@ -5394,18 +5350,6 @@ static int rtw_p2p_prov_disc(struct net_device *dev,
 			}
 
 		}
-
-#ifdef CONFIG_INTEL_WIDI
-		/* Some Intel WiDi source may not provide P2P IE, */
-		/* so we could only compare mac addr by 802.11 Source Address */
-		if (pmlmepriv->widi_state == INTEL_WIDI_STATE_WFD_CONNECTION
-		    && uintPeerChannel == 0) {
-			if (_rtw_memcmp(pnetwork->network.MacAddress, peerMAC, ETH_ALEN)) {
-				uintPeerChannel = pnetwork->network.Configuration.DSConfig;
-				break;
-			}
-		}
-#endif /* CONFIG_INTEL_WIDI */
 
 		plist = get_next(plist);
 
@@ -5495,15 +5439,6 @@ static int rtw_p2p_prov_disc(struct net_device *dev,
 
 	} else {
 		RTW_INFO("[%s] NOT Found in the Scanning Queue!\n", __FUNCTION__);
-#ifdef CONFIG_INTEL_WIDI
-		_cancel_timer_ex(&pwdinfo->restore_p2p_state_timer);
-		rtw_p2p_set_state(pwdinfo, P2P_STATE_FIND_PHASE_SEARCH);
-		rtw_p2p_findphase_ex_set(pwdinfo, P2P_FINDPHASE_EX_NONE);
-		rtw_free_network_queue(padapter, _TRUE);
-		_enter_critical_bh(&pmlmepriv->lock, &irqL);
-		rtw_sitesurvey_cmd(padapter, NULL);
-		_exit_critical_bh(&pmlmepriv->lock, &irqL);
-#endif /* CONFIG_INTEL_WIDI */
 	}
 exit:
 
@@ -6446,62 +6381,6 @@ static int rtw_dbg_port(struct net_device *dev,
 			break;
 #endif
 
-
-#if defined(CONFIG_SDIO_HCI) && defined(CONFIG_SDIO_INDIRECT_ACCESS) && defined(DBG_SDIO_INDIRECT_ACCESS)
-		case 0x1f:
-			{
-				int i, j = 0, test_cnts = 0;
-				static u8 test_code = 0x5A;
-				static u32 data_misatch_cnt = 0, d_acc_err_cnt = 0;
-
-				u32 d_data, i_data;
-				u32 imr;
-
-				test_cnts = extra_arg;
-				for (i = 0; i < test_cnts; i++) {
-					if (RTW_CANNOT_IO(padapter))
-						break;
-
-					rtw_write8(padapter, 0x07, test_code);
-
-					d_data = rtw_read32(padapter, 0x04);
-					imr =  rtw_read32(padapter, 0x10250014);
-					rtw_write32(padapter, 0x10250014, 0);
-					rtw_msleep_os(50);
-
-					i_data = rtw_sd_iread32(padapter, 0x04);
-
-					rtw_write32(padapter, 0x10250014, imr);
-
-					if (d_data != i_data) {
-						data_misatch_cnt++;
-						RTW_ERR("d_data :0x%08x, i_data : 0x%08x\n", d_data, i_data);
-					}
-
-					if (test_code != (i_data >> 24)) {
-						d_acc_err_cnt++;
-						rtw_write8(padapter, 0x07, 0xAA);
-						RTW_ERR("test_code :0x%02x, i_data : 0x%08x\n", test_code, i_data);
-					}
-					if ((j++) == 100) {
-						rtw_msleep_os(2000);
-						RTW_INFO(" Indirect access testing..........%d/%d\n", i, test_cnts);
-						j = 0;
-					}
-
-					test_code = ~test_code;
-					rtw_msleep_os(50);
-				}
-				RTW_INFO("========Indirect access test=========\n");
-				RTW_INFO(" test_cnts = %d\n", test_cnts);
-				RTW_INFO(" direct & indirect read32 data missatch cnts = %d\n", data_misatch_cnt);
-				RTW_INFO(" indirect rdata is not equal to wdata cnts = %d\n", d_acc_err_cnt);
-				RTW_INFO("========Indirect access test=========\n\n");
-				data_misatch_cnt = d_acc_err_cnt = 0;
-
-			}
-			break;
-#endif
 		case 0x20:
 			{
 				if (arg == 0xAA) {
@@ -8685,46 +8564,6 @@ static int rtw_mp_efuse_get(struct net_device *dev,
 		}
 		/*		RTW_INFO("}\n"); */
 	} else if (strcmp(tmp[0], "vidpid") == 0) {
-#ifdef CONFIG_RTL8188E
-#ifdef CONFIG_USB_HCI
-		addr = EEPROM_VID_88EU;
-#endif
-#ifdef CONFIG_PCI_HCI
-		addr = EEPROM_VID_88EE;
-#endif
-#endif /* CONFIG_RTL8188E */
-
-#ifdef CONFIG_RTL8192E
-#ifdef CONFIG_USB_HCI
-		addr = EEPROM_VID_8192EU;
-#endif
-#ifdef CONFIG_PCI_HCI
-		addr = EEPROM_VID_8192EE;
-#endif
-#endif /* CONFIG_RTL8192E */
-#ifdef CONFIG_RTL8723B
-		addr = EEPROM_VID_8723BU;
-#endif /* CONFIG_RTL8192E */
-
-#ifdef CONFIG_RTL8188F
-		addr = EEPROM_VID_8188FU;
-#endif /* CONFIG_RTL8188F */
-
-#ifdef CONFIG_RTL8188GTV
-		addr = EEPROM_VID_8188GTVU;
-#endif
-
-#ifdef CONFIG_RTL8703B
-#ifdef CONFIG_USB_HCI
-		addr = EEPROM_VID_8703BU;
-#endif
-#endif /* CONFIG_RTL8703B */
-
-#ifdef CONFIG_RTL8723D
-#ifdef CONFIG_USB_HCI
-		addr = EEPROM_VID_8723DU;
-#endif /* CONFIG_USB_HCI */
-#endif /* CONFIG_RTL8723D */
 
 		cnts = 4;
 
@@ -9329,47 +9168,6 @@ static int rtw_mp_efuse_set(struct net_device *dev,
 		}
 
 		/* pidvid,da0b7881		 */
-#ifdef CONFIG_RTL8188E
-#ifdef CONFIG_USB_HCI
-		addr = EEPROM_VID_88EU;
-#endif
-#ifdef CONFIG_PCI_HCI
-		addr = EEPROM_VID_88EE;
-#endif
-#endif /* CONFIG_RTL8188E */
-
-#ifdef CONFIG_RTL8192E
-#ifdef CONFIG_USB_HCI
-		addr = EEPROM_VID_8192EU;
-#endif
-#ifdef CONFIG_PCI_HCI
-		addr = EEPROM_VID_8192EE;
-#endif
-#endif /* CONFIG_RTL8188E */
-
-#ifdef CONFIG_RTL8723B
-		addr = EEPROM_VID_8723BU;
-#endif
-
-#ifdef CONFIG_RTL8188F
-		addr = EEPROM_VID_8188FU;
-#endif
-
-#ifdef CONFIG_RTL8188GTV
-		addr = EEPROM_VID_8188GTVU;
-#endif
-
-#ifdef CONFIG_RTL8703B
-#ifdef CONFIG_USB_HCI
-		addr = EEPROM_VID_8703BU;
-#endif /* CONFIG_USB_HCI */
-#endif /* CONFIG_RTL8703B */
-
-#ifdef CONFIG_RTL8723D
-#ifdef CONFIG_USB_HCI
-		addr = EEPROM_VID_8723DU;
-#endif /* CONFIG_USB_HCI */
-#endif /* CONFIG_RTL8723D */
 
 		cnts = strlen(tmp[1]);
 		if (cnts % 2) {
@@ -10099,141 +9897,6 @@ static int rtw_priv_mp_get(struct net_device *dev,
 }
 #endif /*#if defined(CONFIG_MP_INCLUDED)*/
 
-
-#ifdef CONFIG_SDIO_INDIRECT_ACCESS
-#define DBG_MP_SDIO_INDIRECT_ACCESS 1
-static int rtw_mp_sd_iread(struct net_device *dev
-			   , struct iw_request_info *info
-			   , struct iw_point *wrqu
-			   , char *extra)
-{
-	char input[16];
-	u8 width;
-	unsigned long addr;
-	u32 ret = 0;
-	PADAPTER padapter = rtw_netdev_priv(dev);
-
-	if (wrqu->length > 16) {
-		RTW_INFO(FUNC_ADPT_FMT" wrqu->length:%d\n", FUNC_ADPT_ARG(padapter), wrqu->length);
-		ret = -EINVAL;
-		goto exit;
-	}
-
-	if (copy_from_user(input, wrqu->pointer, wrqu->length)) {
-		RTW_INFO(FUNC_ADPT_FMT" copy_from_user fail\n", FUNC_ADPT_ARG(padapter));
-		ret = -EFAULT;
-		goto exit;
-	}
-
-	_rtw_memset(extra, 0, wrqu->length);
-
-	if (sscanf(input, "%hhu,%lx", &width, &addr) != 2) {
-		RTW_INFO(FUNC_ADPT_FMT" sscanf fail\n", FUNC_ADPT_ARG(padapter));
-		ret = -EINVAL;
-		goto exit;
-	}
-
-	if (addr > 0x3FFF) {
-		RTW_INFO(FUNC_ADPT_FMT" addr:0x%lx\n", FUNC_ADPT_ARG(padapter), addr);
-		ret = -EINVAL;
-		goto exit;
-	}
-
-	if (DBG_MP_SDIO_INDIRECT_ACCESS)
-		RTW_INFO(FUNC_ADPT_FMT" width:%u, addr:0x%lx\n", FUNC_ADPT_ARG(padapter), width, addr);
-
-	switch (width) {
-	case 1:
-		sprintf(extra, "0x%02x", rtw_sd_iread8(padapter, addr));
-		wrqu->length = strlen(extra);
-		break;
-	case 2:
-		sprintf(extra, "0x%04x", rtw_sd_iread16(padapter, addr));
-		wrqu->length = strlen(extra);
-		break;
-	case 4:
-		sprintf(extra, "0x%08x", rtw_sd_iread32(padapter, addr));
-		wrqu->length = strlen(extra);
-		break;
-	default:
-		wrqu->length = 0;
-		ret = -EINVAL;
-		break;
-	}
-
-exit:
-	return ret;
-}
-
-static int rtw_mp_sd_iwrite(struct net_device *dev
-			    , struct iw_request_info *info
-			    , struct iw_point *wrqu
-			    , char *extra)
-{
-	char width;
-	unsigned long addr, data;
-	int ret = 0;
-	PADAPTER padapter = rtw_netdev_priv(dev);
-	char input[32];
-
-	if (wrqu->length > 32) {
-		RTW_INFO(FUNC_ADPT_FMT" wrqu->length:%d\n", FUNC_ADPT_ARG(padapter), wrqu->length);
-		ret = -EINVAL;
-		goto exit;
-	}
-
-	if (copy_from_user(input, wrqu->pointer, wrqu->length)) {
-		RTW_INFO(FUNC_ADPT_FMT" copy_from_user fail\n", FUNC_ADPT_ARG(padapter));
-		ret = -EFAULT;
-		goto exit;
-	}
-
-	_rtw_memset(extra, 0, wrqu->length);
-
-	if (sscanf(input, "%hhu,%lx,%lx", &width, &addr, &data) != 3) {
-		RTW_INFO(FUNC_ADPT_FMT" sscanf fail\n", FUNC_ADPT_ARG(padapter));
-		ret = -EINVAL;
-		goto exit;
-	}
-
-	if (addr > 0x3FFF) {
-		RTW_INFO(FUNC_ADPT_FMT" addr:0x%lx\n", FUNC_ADPT_ARG(padapter), addr);
-		ret = -EINVAL;
-		goto exit;
-	}
-
-	if (DBG_MP_SDIO_INDIRECT_ACCESS)
-		RTW_INFO(FUNC_ADPT_FMT" width:%u, addr:0x%lx, data:0x%lx\n", FUNC_ADPT_ARG(padapter), width, addr, data);
-
-	switch (width) {
-	case 1:
-		if (data > 0xFF) {
-			ret = -EINVAL;
-			break;
-		}
-		rtw_sd_iwrite8(padapter, addr, data);
-		break;
-	case 2:
-		if (data > 0xFFFF) {
-			ret = -EINVAL;
-			break;
-		}
-		rtw_sd_iwrite16(padapter, addr, data);
-		break;
-	case 4:
-		rtw_sd_iwrite32(padapter, addr, data);
-		break;
-	default:
-		wrqu->length = 0;
-		ret = -EINVAL;
-		break;
-	}
-
-exit:
-	return ret;
-}
-#endif /* CONFIG_SDIO_INDIRECT_ACCESS */
-
 static int rtw_priv_set(struct net_device *dev,
 			struct iw_request_info *info,
 			union iwreq_data *wdata, char *extra)
@@ -10334,20 +9997,7 @@ static int rtw_priv_get(struct net_device *dev,
 	}
 
 	switch (subcmd) {
-#if defined(CONFIG_RTL8723B)
-	case MP_SetBT:
-		RTW_INFO("set MP_SetBT\n");
-		rtw_mp_SetBT(dev, info, wdata, extra);
-		break;
-#endif
-#ifdef CONFIG_SDIO_INDIRECT_ACCESS
-	case MP_SD_IREAD:
-		rtw_mp_sd_iread(dev, info, wrqu, extra);
-		break;
-	case MP_SD_IWRITE:
-		rtw_mp_sd_iwrite(dev, info, wrqu, extra);
-		break;
-#endif
+
 #ifdef CONFIG_APPEND_VENDOR_IE_ENABLE
 	case VENDOR_IE_GET:
 		RTW_INFO("get case VENDOR_IE_GET\n");
@@ -11207,103 +10857,11 @@ static int rtw_tdls_get(struct net_device *dev,
 	return ret;
 }
 
-
-
-
-
-#ifdef CONFIG_INTEL_WIDI
-static int rtw_widi_set(struct net_device *dev,
-			struct iw_request_info *info,
-			union iwreq_data *wrqu, char *extra)
-{
-	int ret = 0;
-	_adapter *padapter = (_adapter *)rtw_netdev_priv(dev);
-
-	process_intel_widi_cmd(padapter, extra);
-
-	return ret;
-}
-
-static int rtw_widi_set_probe_request(struct net_device *dev,
-				      struct iw_request_info *info,
-				      union iwreq_data *wrqu, char *extra)
-{
-	int	ret = 0;
-	u8	*pbuf = NULL;
-	_adapter	*padapter = (_adapter *)rtw_netdev_priv(dev);
-
-	pbuf = rtw_malloc(sizeof(l2_msg_t));
-	if (pbuf) {
-		if (copy_from_user(pbuf, wrqu->data.pointer, wrqu->data.length))
-			ret = -EFAULT;
-		/* _rtw_memcpy(pbuf, wrqu->data.pointer, wrqu->data.length); */
-
-		if (wrqu->data.flags == 0)
-			intel_widi_wk_cmd(padapter, INTEL_WIDI_ISSUE_PROB_WK, pbuf, sizeof(l2_msg_t));
-		else if (wrqu->data.flags == 1)
-			rtw_set_wfd_rds_sink_info(padapter, (l2_msg_t *)pbuf);
-	}
-	return ret;
-}
-#endif /* CONFIG_INTEL_WIDI */
-
 #ifdef CONFIG_MAC_LOOPBACK_DRIVER
-
-#if defined(CONFIG_RTL8188E)
-#include <rtl8188e_hal.h>
-extern void rtl8188e_cal_txdesc_chksum(struct tx_desc *ptxdesc);
-#define cal_txdesc_chksum rtl8188e_cal_txdesc_chksum
-#ifdef CONFIG_SDIO_HCI || defined(CONFIG_GSPI_HCI)
-extern void rtl8188es_fill_default_txdesc(struct xmit_frame *pxmitframe, u8 *pbuf);
-#define fill_default_txdesc rtl8188es_fill_default_txdesc
-#endif /* CONFIG_SDIO_HCI */
-#endif /* CONFIG_RTL8188E */
-#if defined(CONFIG_RTL8723B)
-extern void rtl8723b_cal_txdesc_chksum(struct tx_desc *ptxdesc);
-#define cal_txdesc_chksum rtl8723b_cal_txdesc_chksum
-extern void rtl8723b_fill_default_txdesc(struct xmit_frame *pxmitframe, u8 *pbuf);
-#define fill_default_txdesc rtl8723b_fill_default_txdesc
-#endif /* CONFIG_RTL8723B */
-
-#if defined(CONFIG_RTL8703B)
-/* extern void rtl8703b_cal_txdesc_chksum(struct tx_desc *ptxdesc); */
-#define cal_txdesc_chksum rtl8703b_cal_txdesc_chksum
-/* extern void rtl8703b_fill_default_txdesc(struct xmit_frame *pxmitframe, u8 *pbuf); */
-#define fill_default_txdesc rtl8703b_fill_default_txdesc
-#endif /* CONFIG_RTL8703B */
-
-#if defined(CONFIG_RTL8723D)
-/* extern void rtl8723d_cal_txdesc_chksum(struct tx_desc *ptxdesc); */
-#define cal_txdesc_chksum rtl8723d_cal_txdesc_chksum
-/* extern void rtl8723d_fill_default_txdesc(struct xmit_frame *pxmitframe, u8 *pbuf); */
-#define fill_default_txdesc rtl8723d_fill_default_txdesc
-#endif /* CONFIG_RTL8723D */
-
-#if defined(CONFIG_RTL8710B)
-#define cal_txdesc_chksum rtl8710b_cal_txdesc_chksum
-#define fill_default_txdesc rtl8710b_fill_default_txdesc
-#endif /* CONFIG_RTL8710B */
-
-#if defined(CONFIG_RTL8192E)
-extern void rtl8192e_cal_txdesc_chksum(struct tx_desc *ptxdesc);
-#define cal_txdesc_chksum rtl8192e_cal_txdesc_chksum
-#ifdef CONFIG_SDIO_HCI || defined(CONFIG_GSPI_HCI)
-extern void rtl8192es_fill_default_txdesc(struct xmit_frame *pxmitframe, u8 *pbuf);
-#define fill_default_txdesc rtl8192es_fill_default_txdesc
-#endif /* CONFIG_SDIO_HCI */
-#endif /* CONFIG_RTL8192E */
-
-#if defined(CONFIG_RTL8192F)
-/* extern void rtl8192f_cal_txdesc_chksum(struct tx_desc *ptxdesc); */
-#define cal_txdesc_chksum rtl8192f_cal_txdesc_chksum
-/* extern void rtl8192f_fill_default_txdesc(struct xmit_frame *pxmitframe, u8 *pbuf); */
-#define fill_default_txdesc rtl8192f_fill_default_txdesc
-#endif /* CONFIG_RTL8192F */
 
 static s32 initLoopback(PADAPTER padapter)
 {
 	PLOOPBACKDATA ploopback;
-
 
 	if (padapter->ploopback == NULL) {
 		ploopback = (PLOOPBACKDATA)rtw_zmalloc(sizeof(LOOPBACKDATA));
@@ -11519,16 +11077,6 @@ static struct xmit_frame *createloopbackpkt(PADAPTER padapter, u32 size)
 	desc->txdw5 = cpu_to_le32(desc->txdw5);
 	desc->txdw6 = cpu_to_le32(desc->txdw6);
 	desc->txdw7 = cpu_to_le32(desc->txdw7);
-#ifdef CONFIG_PCI_HCI
-	desc->txdw8 = cpu_to_le32(desc->txdw8);
-	desc->txdw9 = cpu_to_le32(desc->txdw9);
-	desc->txdw10 = cpu_to_le32(desc->txdw10);
-	desc->txdw11 = cpu_to_le32(desc->txdw11);
-	desc->txdw12 = cpu_to_le32(desc->txdw12);
-	desc->txdw13 = cpu_to_le32(desc->txdw13);
-	desc->txdw14 = cpu_to_le32(desc->txdw14);
-	desc->txdw15 = cpu_to_le32(desc->txdw15);
-#endif
 
 	cal_txdesc_chksum(desc);
 
@@ -12118,17 +11666,6 @@ static const struct iw_priv_args rtw_private_args[] = {
 		IW_PRIV_TYPE_CHAR | 40, IW_PRIV_TYPE_CHAR | 0x7FF, "test"
 	},
 
-#ifdef CONFIG_INTEL_WIDI
-	{
-		SIOCIWFIRSTPRIV + 0x1E,
-		IW_PRIV_TYPE_CHAR | 1024, 0, "widi_set"
-	},
-	{
-		SIOCIWFIRSTPRIV + 0x1F,
-		IW_PRIV_TYPE_CHAR | 128, 0, "widi_prob_req"
-	},
-#endif /* CONFIG_INTEL_WIDI */
-
 	{ SIOCIWFIRSTPRIV + 0x0E, IW_PRIV_TYPE_CHAR | 1024, 0 , ""},  /* set  */
 	{ SIOCIWFIRSTPRIV + 0x0F, IW_PRIV_TYPE_CHAR | 1024, IW_PRIV_TYPE_CHAR | IW_PRIV_SIZE_MASK , ""},/* get
  * --- sub-ioctls definitions --- */
@@ -12137,10 +11674,6 @@ static const struct iw_priv_args rtw_private_args[] = {
 	{ VENDOR_IE_SET, IW_PRIV_TYPE_CHAR | 1024 , 0 , "vendor_ie_set" },
 	{ VENDOR_IE_GET, IW_PRIV_TYPE_CHAR | 1024, IW_PRIV_TYPE_CHAR | IW_PRIV_SIZE_MASK, "vendor_ie_get" },
 #endif
-#if defined(CONFIG_RTL8723B)
-	{ MP_SetBT, IW_PRIV_TYPE_CHAR | 1024, IW_PRIV_TYPE_CHAR | IW_PRIV_SIZE_MASK, "mp_setbt" },
-	{ MP_DISABLE_BT_COEXIST, IW_PRIV_TYPE_CHAR | 1024, 0, "mp_disa_btcoex"},
-#endif
 #ifdef CONFIG_WOWLAN
 	{ MP_WOW_ENABLE , IW_PRIV_TYPE_CHAR | 1024, 0, "wow_mode" },
 	{ MP_WOW_SET_PATTERN , IW_PRIV_TYPE_CHAR | 1024, 0, "wow_set_pattern" },
@@ -12148,12 +11681,7 @@ static const struct iw_priv_args rtw_private_args[] = {
 #ifdef CONFIG_AP_WOWLAN
 	{ MP_AP_WOW_ENABLE , IW_PRIV_TYPE_CHAR | 1024, 0, "ap_wow_mode" }, /* set  */
 #endif
-#ifdef CONFIG_SDIO_INDIRECT_ACCESS
-	{ MP_SD_IREAD, IW_PRIV_TYPE_CHAR | 1024, IW_PRIV_TYPE_CHAR | IW_PRIV_SIZE_MASK, "sd_iread" },
-	{ MP_SD_IWRITE, IW_PRIV_TYPE_CHAR | 1024, IW_PRIV_TYPE_CHAR | IW_PRIV_SIZE_MASK, "sd_iwrite" },
-#endif
 };
-
 
 static const struct iw_priv_args rtw_mp_private_args[] = {
 	/* --- sub-ioctls definitions --- */
@@ -12265,10 +11793,6 @@ static iw_handler rtw_private_handler[] = {
 #endif
 	NULL,							/* 0x1C is reserved for hostapd */
 	rtw_test,						/* 0x1D */
-#ifdef CONFIG_INTEL_WIDI
-	rtw_widi_set,					/* 0x1E */
-	rtw_widi_set_probe_request,		/* 0x1F */
-#endif /* CONFIG_INTEL_WIDI */
 };
 #endif
 

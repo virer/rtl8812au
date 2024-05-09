@@ -247,26 +247,32 @@ void rtw_txpwr_init_regd(struct rf_ctl_t *rfctl)
 	case TXPWR_LMT_CHILE:
 		if (regd == TXPWR_LMT_IC || regd == TXPWR_LMT_CHILE)
 			regd = TXPWR_LMT_FCC;
+
 		else if (regd == TXPWR_LMT_KCC || regd == TXPWR_LMT_ACMA)
 			regd = TXPWR_LMT_ETSI;
 		ent = _rtw_txpwr_lmt_get_by_name(rfctl, regd_str(regd));
+
 		if (ent)
 			rfctl->regd_name = ent->regd_name;
 		RTW_PRINT("alternate regd_name:%s %s\n"
 			, regd_str(regd)
 			, rfctl->regd_name ? "is used" : "not found"
+			/* fallthrough */
 		);
+
 		if (rfctl->regd_name)
-			break;
-	default:
-		rfctl->regd_name = regd_str(TXPWR_LMT_WW);
-		RTW_PRINT("assign %s for default case\n", regd_str(TXPWR_LMT_WW));
-		break;
-	};
+			/* fallthrough */
+
+		default:
+			rfctl->regd_name = regd_str(TXPWR_LMT_WW);
+			RTW_PRINT("assign %s for default case\n", regd_str(TXPWR_LMT_WW));
+			/* fallthrough */
+		}
 
 release_lock:
 	_exit_critical_mutex(&rfctl->txpwr_lmt_mutex, &irqL);
 }
+
 #endif /* CONFIG_TXPWR_LIMIT */
 
 void rtw_rfctl_init(_adapter *adapter)
@@ -1343,6 +1349,8 @@ void mgt_dispatcher(_adapter *padapter, union recv_frame *precv_frame)
 		else
 			ptable->func = &OnAuthClient;
 	case WIFI_ASSOCREQ:
+		break;
+	
 	case WIFI_REASSOCREQ:
 		_mgt_dispatcher(padapter, ptable, precv_frame);
 		#ifdef CONFIG_HOSTAPD_MLME
@@ -1350,6 +1358,7 @@ void mgt_dispatcher(_adapter *padapter, union recv_frame *precv_frame)
 			rtw_hostapd_mlme_rx(padapter, precv_frame);
 		#endif
 		break;
+
 	case WIFI_PROBEREQ:
 		_mgt_dispatcher(padapter, ptable, precv_frame);
 		#ifdef CONFIG_HOSTAPD_MLME
@@ -1357,12 +1366,15 @@ void mgt_dispatcher(_adapter *padapter, union recv_frame *precv_frame)
 			rtw_hostapd_mlme_rx(padapter, precv_frame);
 		#endif
 		break;
+
 	case WIFI_BEACON:
 		_mgt_dispatcher(padapter, ptable, precv_frame);
 		break;
+
 	case WIFI_ACTION:
 		_mgt_dispatcher(padapter, ptable, precv_frame);
 		break;
+
 	default:
 		_mgt_dispatcher(padapter, ptable, precv_frame);
 		#ifdef CONFIG_HOSTAPD_MLME
@@ -1370,6 +1382,7 @@ void mgt_dispatcher(_adapter *padapter, union recv_frame *precv_frame)
 			rtw_hostapd_mlme_rx(padapter, precv_frame);
 		#endif
 		break;
+
 	}
 #else
 

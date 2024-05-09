@@ -2525,7 +2525,9 @@ static int cfg80211_rtw_change_iface(struct wiphy *wiphy,
 	#if defined(CONFIG_P2P) && ((LINUX_VERSION_CODE >= KERNEL_VERSION(2, 6, 37)) || defined(COMPAT_KERNEL_RELEASE))
 	case NL80211_IFTYPE_P2P_CLIENT:
 		is_p2p = _TRUE;
+		break;
 	#endif
+
 	case NL80211_IFTYPE_STATION:
 		networkType = Ndis802_11Infrastructure;
 
@@ -2543,13 +2545,14 @@ static int cfg80211_rtw_change_iface(struct wiphy *wiphy,
 			#endif
 		}
 		#endif /* CONFIG_P2P */
-
 		break;
 
 	#if defined(CONFIG_P2P) && ((LINUX_VERSION_CODE >= KERNEL_VERSION(2, 6, 37)) || defined(COMPAT_KERNEL_RELEASE))
 	case NL80211_IFTYPE_P2P_GO:
 		is_p2p = _TRUE;
+		break;
 	#endif
+
 	case NL80211_IFTYPE_AP:
 		networkType = Ndis802_11APMode;
 
@@ -6416,7 +6419,7 @@ static int	cfg80211_rtw_assoc(struct wiphy *wiphy, struct net_device *ndev,
 
 	return 0;
 }
-#endif /* CONFIG_AP_MODE */
+#endif
 
 void rtw_cfg80211_rx_probe_request(_adapter *adapter, union recv_frame *rframe)
 {
